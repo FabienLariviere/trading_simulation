@@ -6,8 +6,7 @@ from bunnet import Document, Link, BackLink
 from pydantic import Field
 from datetime import datetime
 
-from src.models import NotEnoughtMoneyError, NotEnoughtObjectsError, OrderNotExistsError
-from src.exceptions import OrderIntersectionError
+from src.exceptions import OrderIntersectionError, NotEnoughtMoneyError, NotEnoughtObjectsError, OrderNotExistsError
 
 
 class TradingObject(Document):
@@ -106,8 +105,6 @@ class User(Document):
         self.fetch_all_links()
         abs_price = abs(amount * price)
 
-        print()
-
         # ограничение на создание пересекающей цены
         if order_type is OrderType.BUY:
             query = TradingOrder.find_many(TradingOrder.order_type == order_type.SELL, TradingOrder.status == TradingStatus.ACTIVE).sort("-price").limit(1)
@@ -183,7 +180,7 @@ class User(Document):
 
         return self.wallet.money
 
-    def edit_objects(self, trading_object: "TradingObject", amount):
+    def edit_objects(self, trading_object: "TradingObject", amount: int):
         self.fetch_all_links()
         self.wallet.edit_objects(trading_object, amount)
         return self.wallet.objects_wallet

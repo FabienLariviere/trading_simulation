@@ -3,7 +3,7 @@
 ### QuickStart
 ```python
 from src.models import User, TradingObject, Wallet, TradingOrder, OrderType
-from src.exceptions import NotEnoughtObjectsError, NotEnoughtMoneyError, OrderNotExistsError
+from src.exceptions import NotEnoughtObjectsError, NotEnoughtMoneyError, OrderNotExistsError, OrderIntersectionError
 from src.connect import connect
 
 def quick_start():
@@ -27,7 +27,7 @@ def quick_start():
     # create order
     try:
         order = user_alex.create_order(btc, 1, 100, OrderType.SELL)
-    except (NotEnoughtObjectsError, NotEnoughtMoneyError) as err:
+    except (NotEnoughtObjectsError, NotEnoughtMoneyError, OrderIntersectionError) as err:
         raise err
     
     # use order
