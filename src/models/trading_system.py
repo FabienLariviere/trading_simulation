@@ -11,23 +11,37 @@ from src.exceptions import OrderIntersectionError, NotEnoughtMoneyError, NotEnou
 
 class TradingObject(Document):
     name: str
-    orders: list[BackLink["TradingOrder"]] = Field(original_field="trading_object")
     fee: float = 0.1
 
-    def get_avg_price(self, order_type: "OrderType") -> float | None:
-        self.fetch_all_links()
-
-        try:
-            mean = statistics.mean(
-                map(
-                    lambda order: order.price,
-                    filter(lambda order: order.order_type == order_type and order.status == TradingStatus.ACTIVE, self.orders)
-                )
-            )
-        except statistics.StatisticsError:
-            mean = None
-
-        return mean
+    # def get_current_price(self):
+    #     self.fetch_all_links()
+    #
+    #     try:
+    #         last_price = list(sorted(
+    #             filter(lambda order: order.order_type is OrderType.BUY and order.status is TradingStatus.ACTIVE, self.orders),
+    #             key=lambda order: order.updated_at or order.created_at, reverse=True
+    #         ))[0]
+    #     except:
+    #         last_price = None
+    #     else:
+    #         last_price = last_price.price
+    #
+    #     return last_price
+    #
+    # def get_avg_price(self, order_type: "OrderType") -> float | None:
+    #     self.fetch_all_links()
+    #
+    #     try:
+    #         mean = statistics.mean(
+    #             map(
+    #                 lambda order: order.price,
+    #                 filter(lambda order: order.order_type is order_type and order.status is TradingStatus.ACTIVE, self.orders)
+    #             )
+    #         )
+    #     except statistics.StatisticsError:
+    #         mean = None
+    #
+    #     return mean
 
 
 class TradingStatus(str, enum.Enum):
@@ -89,7 +103,6 @@ class TradingOrder(Document):
 class User(Document):
     name: str
     wallet: Link["Wallet"]
-    orders: list[BackLink["TradingOrder"]] = Field(original_field="creator")
 
     def transfer(self, to_user: "User", amount):
         self.fetch_all_links()
@@ -105,26 +118,30 @@ class User(Document):
         self.fetch_all_links()
         abs_price = abs(amount * price)
 
-        # ограничение на создание пересекающей цены
-        if order_type is OrderType.BUY:
-            query = TradingOrder.find_many(TradingOrder.order_type == order_type.SELL, TradingOrder.status == TradingStatus.ACTIVE).sort("-price").limit(1)
-        else:
-            query = TradingOrder.find_many(TradingOrder.order_type == order_type.BUY, TradingOrder.status == TradingStatus.ACTIVE).sort("+price").limit(1)
+        # BUY < SELL
+        # проверяем чтобы ордера не пересекались в ценах
 
-        # сравниваем ордера
-        if intersection_order := (~query)[0]:
-            # цена ордера покупки больше чем максимальная цена продажи
-            # цена ордера продажи меньше чем максимальная цена покупки
-            if (order_type is OrderType.BUY and intersection_order.price < price) or (order_type is OrderType.SELL and intersection_order.price > price):
+        if order_type is OrderType.BUY:
+            order = ~TradingOrder.find_many(
+                TradingOrder.order_type == order_type.SELL,
+                TradingOrder.status == TradingStatus.ACTIVE
+            ).sort("-price").limit(1)
+            if order and order[0].price < price:
+                raise OrderIntersectionError
+        else:
+            order = ~TradingOrder.find_many(
+                TradingOrder.order_type == order_type.BUY,
+                TradingOrder.status == TradingStatus.ACTIVE
+            ).sort("+price").limit(1)
+            if order and order[0].price > price:
                 raise OrderIntersectionError
 
-            # если цена у нас совпадает, мы можем выполнить ордер
-            if intersection_order.price == price:
-                self.use_order(intersection_order, amount)
-                return None
+        # если в системе уже существует противоположный ордер с такой ценой - выполняем его
+        if order and order[0].price == price:
+            self.use_order(order[0], amount)
+            return
 
         # если с ценой все в проядке дальше создаем новый ордер
-
         if order_type is OrderType.BUY:
             if self.wallet.money < abs_price:
                 raise NotEnoughtMoneyError
@@ -189,8 +206,6 @@ class User(Document):
 class Wallet(Document):
     money: float = Field(0, ge=0)
     objects_wallet: dict[str, int] = dict()
-
-    user: BackLink[User] = Field(original_field="wallet")
 
     def edit_objects(self, trading_object: "TradingObject", amount):
         object_id = str(trading_object.id)
